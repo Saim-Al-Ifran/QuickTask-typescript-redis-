@@ -13,17 +13,18 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteTodo = exports.updateTodo = exports.createTodo = exports.getTodoById = exports.getTodos = void 0;
-const redis_1 = __importDefault(require("../config/redis"));
+const cache_1 = require("../utils/cache");
 const Todo_1 = __importDefault(require("../models/Todo"));
 // Get all To-Dos
 const getTodos = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const cachedTodos = yield redis_1.default.get('todos');
+        const cacheKey = 'todos';
+        const cachedTodos = yield (0, cache_1.getCache)(cacheKey);
         if (cachedTodos) {
             return res.json(JSON.parse(cachedTodos));
         }
         const todos = yield Todo_1.default.find();
-        redis_1.default.setEx('todos', 300, JSON.stringify(todos)); // Cache for 1 min
+        yield (0, cache_1.setCache)(cacheKey, todos, 300); // Cache for 5 minutes
         return res.json(todos);
     }
     catch (err) {
@@ -35,20 +36,17 @@ exports.getTodos = getTodos;
 const getTodoById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     try {
-        // Check if the To-Do is cached
-        const cachedTodo = yield redis_1.default.get(`todo:${id}`);
+        const cacheKey = `todo:${id}`;
+        const cachedTodo = yield (0, cache_1.getCache)(cacheKey);
         if (cachedTodo) {
             console.log('Cache hit for single To-Do');
             return res.json(JSON.parse(cachedTodo));
         }
-        // Fetch from MongoDB if not cached
         const todo = yield Todo_1.default.findById(id);
         if (!todo) {
             return res.status(404).json({ message: 'To-Do not found' });
         }
-        // Cache the result for future requests
-        yield redis_1.default.setEx(`todo:${id}`, 300, JSON.stringify(todo));
-        console.log('Cache miss for single To-Do');
+        yield (0, cache_1.setCache)(cacheKey, todo, 300); // Cache for 5 minutes
         return res.json(todo);
     }
     catch (err) {
@@ -65,7 +63,7 @@ const createTodo = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             completed: false,
         });
         yield newTodo.save();
-        redis_1.default.del('todos'); // Invalidate cache
+        yield (0, cache_1.delCache)('todos'); // Invalidate list cache
         res.status(201).json(newTodo);
     }
     catch (err) {
@@ -79,8 +77,11 @@ const updateTodo = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const { id } = req.params;
         const { task, completed } = req.body;
         const updatedTodo = yield Todo_1.default.findByIdAndUpdate(id, { task, completed }, { new: true });
-        yield redis_1.default.del(`todo:${id}`); // Invalidate single To-Do cache
-        yield redis_1.default.del('todos'); // Invalidate the list cache
+        if (!updatedTodo) {
+            return res.status(404).json({ message: 'To-Do not found' });
+        }
+        yield (0, cache_1.delCache)(`todo:${id}`); // Invalidate single cache
+        yield (0, cache_1.delCache)('todos'); // Invalidate list cache
         res.json(updatedTodo);
     }
     catch (err) {
@@ -92,18 +93,15 @@ exports.updateTodo = updateTodo;
 const deleteTodo = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     try {
-        // Attempt to delete the To-Do from MongoDB
         const deletedTodo = yield Todo_1.default.findByIdAndDelete(id);
         if (!deletedTodo) {
             return res.status(404).json({ message: 'To-Do not found' });
         }
-        // Invalidate related caches
-        yield redis_1.default.del('todos'); // Invalidate the list cache
-        yield redis_1.default.del(`todo:${id}`); // Invalidate the single To-Do cache
+        yield (0, cache_1.delCache)('todos'); // Invalidate list cache
+        yield (0, cache_1.delCache)(`todo:${id}`); // Invalidate single cache
         res.json({ message: 'To-Do deleted successfully' });
     }
     catch (err) {
-        console.error(err);
         res.status(500).json({ message: 'Server error', error: err });
     }
 });
