@@ -68,7 +68,8 @@ export const updateTodo = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { task, completed } = req.body;
     const updatedTodo = await Todo.findByIdAndUpdate(id, { task, completed }, { new: true });
-    redisClient.del('todos'); // Invalidate cache
+    await redisClient.del(`todo:${id}`); // Invalidate single To-Do cache
+    await redisClient.del('todos'); // Invalidate the list cache
     res.json(updatedTodo);
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
@@ -77,12 +78,24 @@ export const updateTodo = async (req: Request, res: Response) => {
 
 // Delete a To-Do
 export const deleteTodo = async (req: Request, res: Response) => {
+  const { id } = req.params;
+
   try {
-    const { id } = req.params;
-    await Todo.findByIdAndDelete(id);
-    redisClient.del('todos'); // Invalidate cache
-    res.json({ message: 'Todo deleted' });
+    // Attempt to delete the To-Do from MongoDB
+    const deletedTodo = await Todo.findByIdAndDelete(id);
+
+    if (!deletedTodo) {
+      return res.status(404).json({ message: 'To-Do not found' });
+    }
+
+    // Invalidate related caches
+    await redisClient.del('todos'); // Invalidate the list cache
+    await redisClient.del(`todo:${id}`); // Invalidate the single To-Do cache
+
+    res.json({ message: 'To-Do deleted successfully' });
   } catch (err) {
-    res.status(500).json({ message: 'Server error' });
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err });
   }
 };
+

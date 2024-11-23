@@ -79,7 +79,8 @@ const updateTodo = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const { id } = req.params;
         const { task, completed } = req.body;
         const updatedTodo = yield Todo_1.default.findByIdAndUpdate(id, { task, completed }, { new: true });
-        redis_1.default.del('todos'); // Invalidate cache
+        yield redis_1.default.del(`todo:${id}`); // Invalidate single To-Do cache
+        yield redis_1.default.del('todos'); // Invalidate the list cache
         res.json(updatedTodo);
     }
     catch (err) {
@@ -89,14 +90,21 @@ const updateTodo = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
 exports.updateTodo = updateTodo;
 // Delete a To-Do
 const deleteTodo = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
     try {
-        const { id } = req.params;
-        yield Todo_1.default.findByIdAndDelete(id);
-        redis_1.default.del('todos'); // Invalidate cache
-        res.json({ message: 'Todo deleted' });
+        // Attempt to delete the To-Do from MongoDB
+        const deletedTodo = yield Todo_1.default.findByIdAndDelete(id);
+        if (!deletedTodo) {
+            return res.status(404).json({ message: 'To-Do not found' });
+        }
+        // Invalidate related caches
+        yield redis_1.default.del('todos'); // Invalidate the list cache
+        yield redis_1.default.del(`todo:${id}`); // Invalidate the single To-Do cache
+        res.json({ message: 'To-Do deleted successfully' });
     }
     catch (err) {
-        res.status(500).json({ message: 'Server error' });
+        console.error(err);
+        res.status(500).json({ message: 'Server error', error: err });
     }
 });
 exports.deleteTodo = deleteTodo;
