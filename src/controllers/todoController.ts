@@ -11,10 +11,38 @@ export const getTodos = async (req: Request, res: Response) => {
     }
 
     const todos = await Todo.find();
-    redisClient.setEx('todos', 60, JSON.stringify(todos)); // Cache for 1 min
+    redisClient.setEx('todos', 300, JSON.stringify(todos)); // Cache for 1 min
     return res.json(todos);
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Get a single To-Do by ID
+export const getTodoById = async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    // Check if the To-Do is cached
+    const cachedTodo = await redisClient.get(`todo:${id}`);
+    if (cachedTodo) {
+      console.log('Cache hit for single To-Do');
+      return res.json(JSON.parse(cachedTodo));
+    }
+
+    // Fetch from MongoDB if not cached
+    const todo = await Todo.findById(id);
+
+    if (!todo) {
+      return res.status(404).json({ message: 'To-Do not found' });
+    }
+
+    // Cache the result for future requests
+    await redisClient.setEx(`todo:${id}`, 300, JSON.stringify(todo));  
+    console.log('Cache miss for single To-Do');
+    return res.json(todo);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err });
   }
 };
 

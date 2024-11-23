@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteTodo = exports.updateTodo = exports.createTodo = exports.getTodos = void 0;
+exports.deleteTodo = exports.updateTodo = exports.createTodo = exports.getTodoById = exports.getTodos = void 0;
 const redis_1 = __importDefault(require("../config/redis"));
 const Todo_1 = __importDefault(require("../models/Todo"));
 // Get all To-Dos
@@ -23,7 +23,7 @@ const getTodos = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             return res.json(JSON.parse(cachedTodos));
         }
         const todos = yield Todo_1.default.find();
-        redis_1.default.setEx('todos', 60, JSON.stringify(todos)); // Cache for 1 min
+        redis_1.default.setEx('todos', 300, JSON.stringify(todos)); // Cache for 1 min
         return res.json(todos);
     }
     catch (err) {
@@ -31,6 +31,31 @@ const getTodos = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.getTodos = getTodos;
+// Get a single To-Do by ID
+const getTodoById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    try {
+        // Check if the To-Do is cached
+        const cachedTodo = yield redis_1.default.get(`todo:${id}`);
+        if (cachedTodo) {
+            console.log('Cache hit for single To-Do');
+            return res.json(JSON.parse(cachedTodo));
+        }
+        // Fetch from MongoDB if not cached
+        const todo = yield Todo_1.default.findById(id);
+        if (!todo) {
+            return res.status(404).json({ message: 'To-Do not found' });
+        }
+        // Cache the result for future requests
+        yield redis_1.default.setEx(`todo:${id}`, 300, JSON.stringify(todo));
+        console.log('Cache miss for single To-Do');
+        return res.json(todo);
+    }
+    catch (err) {
+        res.status(500).json({ message: 'Server error', error: err });
+    }
+});
+exports.getTodoById = getTodoById;
 // Create a new To-Do
 const createTodo = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
